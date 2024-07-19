@@ -1,0 +1,9 @@
+[package]
+name = "crates"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glam = "0.28.0"
+macroquad = "0.4.11"
+rand = "0.8.5"
