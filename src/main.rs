@@ -1,12 +1,11 @@
-use std::{default, f32::consts::PI};
+use std::f32::consts::PI;
 
-use glam::Vec2;
 use macroquad::{
-    camera::{push_camera_state, set_camera, Camera2D},
-    color::{Color, DARKBLUE, GREEN, WHITE, YELLOW},
+    camera::{set_camera, Camera2D},
+    color::{DARKBLUE, GREEN, WHITE},
     math::Rect,
     miniquad::window,
-    shapes::{draw_arc, draw_circle, draw_line, draw_rectangle_ex, DrawRectangleParams},
+    shapes::{draw_arc, draw_line, draw_rectangle_ex, DrawRectangleParams},
     window::{clear_background, next_frame},
 };
 use track::{generate_network, TrackShape};
@@ -53,11 +52,6 @@ async fn main() {
                     radius,
                     center,
                 } => {
-                    // let (start_angle, end_angle) = (
-                    //     start_angle.min(end_angle),
-                    //     start_angle.max(end_angle)
-                    // );
-
                     let arc = ((end_angle - start_angle + PI * 2.) % (PI * 2.)).to_degrees();
 
                     draw_arc(

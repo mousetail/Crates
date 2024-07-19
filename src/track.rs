@@ -1,11 +1,9 @@
-use core::net;
 use std::{
     collections::VecDeque,
     f32::consts::{FRAC_PI_2, PI, TAU},
 };
 
 use glam::Vec2;
-use macroquad::miniquad::ShaderType;
 use rand::Rng;
 
 use crate::minivec::Minivec;
@@ -183,7 +181,6 @@ impl Network {
             }
             (None, Some(ang)) => {
                 if let Some(arc_info) = radius_to(destiation.position, -ang, source.position) {
-
                     self.junctions[source.id.0].angle = Some(-arc_info.final_angle);
 
                     self.add_track(
