@@ -6,7 +6,7 @@ use macroquad::{
     shapes::{draw_arc, draw_line, draw_rectangle_ex, DrawRectangleParams},
     window::{clear_background, next_frame},
 };
-use track::{generate_network};
+use track::generate_network;
 use track_shape::TrackShape;
 
 mod minivec;
@@ -38,7 +38,7 @@ async fn main() {
 
         for curve in network.curves() {
             match curve.shape {
-                TrackShape::Line { source, direction } => draw_line(
+                TrackShape::Line { source, .. } => draw_line(
                     source.x,
                     source.y,
                     curve.destination.x,

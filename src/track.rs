@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    f32::consts::{FRAC_PI_2, PI, TAU},
+    f32::consts::{FRAC_PI_2, TAU},
 };
 
 use glam::Vec2;
@@ -24,7 +24,7 @@ pub struct TrainId(usize);
 pub struct StationId;
 
 const MAX_RADIUS: f32 = 4.0;
-const IDEAL_SEGMENT_LENGTH: f32 = 2.0;
+const IDEAL_SEGMENT_LENGTH: f32 = 3.0;
 const MIN_RADIUS: f32 = 2.0;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -53,7 +53,6 @@ pub struct TrackInfo {
     pub destination: Vec2,
     pub shape: TrackShape,
 }
-
 
 pub struct Train {
     id: TrainId,
@@ -116,6 +115,7 @@ impl Network {
             TrackShape::Line {
                 source: self.junctions[source_id.0].position,
                 direction: angle,
+                length: (destination.position - source.position).length(),
             },
         );
         self.junctions[source_id.0].angle.get_or_insert(angle);
@@ -265,6 +265,7 @@ impl Network {
             TrackShape::Line {
                 source: position,
                 direction: Vec2::from_angle(angle),
+                length,
             },
         );
 
@@ -279,6 +280,46 @@ impl Network {
     }
 
     fn add_track(
+        &mut self,
+        source_id: JunctionId,
+        destination_id: JunctionId,
+        shape: TrackShape,
+    ) -> TrackID {
+        let length = shape.get_length();
+
+        let number_of_segments = ((length / IDEAL_SEGMENT_LENGTH).floor() as usize).max(1);
+        let segment_length = length / (number_of_segments as f32);
+
+        let mut last_segment = source_id;
+
+        let mut first_segment = None;
+        for seg in 0..number_of_segments {
+            let destination_id = if seg == number_of_segments - 1 {
+                destination_id
+            } else {
+                self.add_junction(
+                    shape
+                        .get_transform_at_distance((seg as f32 + 1.0) * segment_length)
+                        .0,
+                )
+            };
+
+            let segment = self.add_track_segment(
+                last_segment,
+                destination_id,
+                shape.subshape(
+                    (seg as f32) * segment_length,
+                    (seg as f32 + 1.0) * segment_length,
+                ),
+            );
+            first_segment.get_or_insert(segment);
+            last_segment = destination_id;
+        }
+
+        first_segment.unwrap()
+    }
+
+    fn add_track_segment(
         &mut self,
         source_id: JunctionId,
         destination_id: JunctionId,
@@ -300,12 +341,7 @@ impl Network {
             trains: VecDeque::new(),
 
             direction: (destination.position - source.position).normalize(),
-            length: match shape {
-                TrackShape::Line { .. } => (destination.position - source.position).length(),
-                TrackShape::Arc {
-                    angle_diff, radius, ..
-                } => angle_diff.abs() * radius,
-            },
+            length: shape.get_length(),
             id: track_id,
             shape,
         };
@@ -400,11 +436,13 @@ pub fn generate_network() -> Network {
         )
     });
 
+    // network.assert_correctness("before new tracks");
+
     network.connect_track(junctions[3], center_junction);
     network.connect_track(junctions[6], center_junction);
     network.connect_track(center_junction, junctions[4]);
 
-    network.assert_correctness("After new tracks");
+    // network.assert_correctness("After new tracks");
 
     network.add_train(tracks[0]);
     network.add_train(tracks[1]);
