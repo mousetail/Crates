@@ -6,10 +6,12 @@ use macroquad::{
     shapes::{draw_arc, draw_line, draw_rectangle_ex, DrawRectangleParams},
     window::{clear_background, next_frame},
 };
-use track::{generate_network, TrackShape};
+use track::{generate_network};
+use track_shape::TrackShape;
 
 mod minivec;
 mod track;
+mod track_shape;
 
 #[macroquad::main("Crates")]
 async fn main() {
