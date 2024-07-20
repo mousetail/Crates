@@ -1,5 +1,3 @@
-use std::f32::consts::PI;
-
 use macroquad::{
     camera::{set_camera, Camera2D},
     color::{DARKBLUE, GREEN, WHITE},
@@ -38,9 +36,9 @@ async fn main() {
 
         for curve in network.curves() {
             match curve.shape {
-                TrackShape::Line => draw_line(
-                    curve.source.x,
-                    curve.source.y,
+                TrackShape::Line { source, direction } => draw_line(
+                    source.x,
+                    source.y,
                     curve.destination.x,
                     curve.destination.y,
                     1.0,
@@ -48,11 +46,15 @@ async fn main() {
                 ),
                 TrackShape::Arc {
                     start_angle,
-                    end_angle,
+                    angle_diff,
                     radius,
                     center,
                 } => {
-                    let arc = ((end_angle - start_angle + PI * 2.) % (PI * 2.)).to_degrees();
+                    let (start_angle, angle_diff) = if angle_diff < 0. {
+                        (start_angle + angle_diff, -angle_diff)
+                    } else {
+                        (start_angle, angle_diff)
+                    };
 
                     draw_arc(
                         center.x,
@@ -61,7 +63,7 @@ async fn main() {
                         radius + 0.5,
                         start_angle.to_degrees(),
                         1.0,
-                        arc,
+                        angle_diff.to_degrees(),
                         DARKBLUE,
                     );
                 }
