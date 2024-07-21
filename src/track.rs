@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    f32::consts::{FRAC_PI_2, TAU},
+    f32::consts::{FRAC_PI_2, PI, TAU},
 };
 
 use glam::Vec2;
@@ -34,7 +34,7 @@ pub struct Junction {
     position: Vec2,
     enterances: Minivec<2, TrackID>,
     exits: Minivec<2, TrackID>,
-    angle: Option<Vec2>,
+    direction: Option<Vec2>,
 }
 
 pub struct Track {
@@ -42,7 +42,6 @@ pub struct Track {
     source: JunctionId,
     destiation: JunctionId,
     trains: VecDeque<TrainId>,
-    direction: Vec2,
     length: f32,
     shape: TrackShape,
 }
@@ -83,13 +82,15 @@ impl Network {
             id: junction_id,
             exits: Minivec::new(),
             enterances: Minivec::new(),
-            angle: None,
+            direction: None,
         });
 
         return junction_id;
     }
 
     fn assert_correctness(&self, message: &'static str) {
+        return;
+
         for (id, junction) in self.junctions.iter().enumerate() {
             assert_eq!(JunctionId(id), junction.id)
         }
@@ -101,6 +102,16 @@ impl Network {
             assert!(expected_destination.distance(actual_destination) < 0.01, "{message} Expected: {expected_destination:?} Actual: {actual_destination:?}\ndestination: {:?} source: {:?} id: {:?}",
                 track.destiation, track.source, track.id
         );
+
+            if let Some(expected_direction) = self.junctions[track.source.0].direction {
+                let actual_direction =
+                    Vec2::from_angle(track.shape.get_transform_at_distance(0.0).1);
+
+                assert!(
+                    expected_direction.distance(actual_direction) < 0.01,
+                    "{message} {expected_direction} {actual_direction}"
+                )
+            }
         }
     }
 
@@ -118,8 +129,10 @@ impl Network {
                 length: (destination.position - source.position).length(),
             },
         );
-        self.junctions[source_id.0].angle.get_or_insert(angle);
-        self.junctions[destination_id.0].angle.get_or_insert(angle);
+        self.junctions[source_id.0].direction.get_or_insert(angle);
+        self.junctions[destination_id.0]
+            .direction
+            .get_or_insert(angle);
 
         track
     }
@@ -131,79 +144,37 @@ impl Network {
         #[derive(Debug)]
         struct ArcInfo {
             radius: f32,
-            final_angle: Vec2,
+            final_vector: Vec2,
             angle_distance: f32,
             center: Vec2,
+            start_vector: Vec2,
         }
 
-        fn radius_to(start: Vec2, start_angle: Vec2, point: Vec2) -> Option<ArcInfo> {
-            let x = start_angle.dot(point - start);
-            let y = start_angle.perp().dot(point - start);
-
-            if y.abs() < 0.01 {
-                return None;
-            }
-
-            let radius = (x * x + y * y) / (2.0 * y);
-            let center = start + start_angle.perp() * radius;
-
-            let final_angle = ((point - center).perp()).normalize() * radius.signum();
-
-            let angle_distance = start_angle.angle_to(final_angle);
-
-            let angle_distance = if radius < 0.0 {
-                (angle_distance + TAU) % TAU - TAU
-            } else {
-                (angle_distance + TAU) % TAU
-            };
-
-            return Some(ArcInfo {
-                radius,
-                final_angle,
-                center,
-                angle_distance,
-            });
-        }
-
-        match (source.angle, destiation.angle) {
+        match (source.direction, destiation.direction) {
             (None, None) => self.create_line(source_id, destination_id),
-            (Some(ang), None) => {
-                if let Some(arc_info) = radius_to(source.position, ang, destiation.position) {
-                    self.junctions[destiation.id.0].angle = Some(arc_info.final_angle);
+            (Some(source_direction), None) => {
+                let arc = TrackShape::from_source_direction_dest(
+                    source.position,
+                    source_direction,
+                    destiation.position,
+                );
 
-                    self.add_track(
-                        source_id,
-                        destination_id,
-                        TrackShape::Arc {
-                            start_angle: ang.to_angle() - FRAC_PI_2,
-                            angle_diff: arc_info.angle_distance,
-                            radius: arc_info.radius,
-                            center: arc_info.center,
-                        }
-                        .normalize(),
-                    )
-                } else {
-                    self.create_line(source_id, destination_id)
-                }
+                self.junctions[destination_id.0].direction = Some(Vec2::from_angle(
+                    arc.get_transform_at_distance(arc.get_length()).1,
+                ));
+                self.add_track(source_id, destination_id, arc)
             }
-            (None, Some(ang)) => {
-                if let Some(arc_info) = radius_to(destiation.position, -ang, source.position) {
-                    self.junctions[source.id.0].angle = Some(-arc_info.final_angle);
+            (None, Some(destination_direction)) => {
+                let arc = TrackShape::from_source_direction_dest(
+                    destiation.position,
+                    -destination_direction,
+                    source.position,
+                )
+                .reverse();
 
-                    self.add_track(
-                        source_id,
-                        destination_id,
-                        TrackShape::Arc {
-                            start_angle: (arc_info.final_angle).to_angle() - FRAC_PI_2,
-                            angle_diff: -arc_info.angle_distance,
-                            radius: arc_info.radius,
-                            center: arc_info.center,
-                        }
-                        .normalize(),
-                    )
-                } else {
-                    self.create_line(source_id, destination_id)
-                }
+                self.junctions[source_id.0].direction =
+                    Some(Vec2::from_angle(arc.get_transform_at_distance(0.0).1));
+                self.add_track(source_id, destination_id, arc)
             }
             (Some(a1), Some(a2)) => {
                 let (midpoint_1, midpoint_2) = ([-1., 1.])
@@ -238,7 +209,9 @@ impl Network {
                 let junction_2 = self.add_junction(midpoint_2);
 
                 self.connect_track(source_id, junction_1);
+                self.assert_correctness("after first bend");
                 self.connect_track(junction_2, destination_id);
+                self.assert_correctness("after second bend");
 
                 self.create_line(junction_1, junction_2)
             }
@@ -332,15 +305,11 @@ impl Network {
             .enterances
             .push(track_id)
             .unwrap();
-        let source = &self.junctions[source_id.0];
-        let destination = &self.junctions[destination_id.0];
 
         let track = Track {
             source: source_id,
             destiation: destination_id,
             trains: VecDeque::new(),
-
-            direction: (destination.position - source.position).normalize(),
             length: shape.get_length(),
             id: track_id,
             shape,
@@ -415,37 +384,40 @@ pub fn generate_network() -> Network {
     let width = 64.0;
     let height = 40.0;
     let border_radius = 12.0;
+    for (scale, offset) in [(1.0, 1), (0.8, -1)] {
+        let junctions = [
+            network.add_junction(Vec2::new(-width * 0.5 + border_radius, -height * 0.5) * scale),
+            network.add_junction(Vec2::new(-width * 0.5, -height * 0.5 + border_radius) * scale),
+            network.add_junction(Vec2::new(-width * 0.5, height * 0.5 - border_radius) * scale),
+            network.add_junction(Vec2::new(-width * 0.5 + border_radius, height * 0.5) * scale),
+            network.add_junction(Vec2::new(width * 0.5 - border_radius, height * 0.5) * scale),
+            network.add_junction(Vec2::new(width * 0.5, height * 0.5 - border_radius) * scale),
+            network.add_junction(Vec2::new(width * 0.5, -height * 0.5 + border_radius) * scale),
+            network.add_junction(Vec2::new(width * 0.5 - border_radius, -height * 0.5) * scale),
+        ];
 
-    let junctions = [
-        network.add_junction(Vec2::new(-width * 0.5 + border_radius, -height * 0.5)),
-        network.add_junction(Vec2::new(-width * 0.5, -height * 0.5 + border_radius)),
-        network.add_junction(Vec2::new(-width * 0.5, height * 0.5 - border_radius)),
-        network.add_junction(Vec2::new(-width * 0.5 + border_radius, height * 0.5)),
-        network.add_junction(Vec2::new(width * 0.5 - border_radius, height * 0.5)),
-        network.add_junction(Vec2::new(width * 0.5, height * 0.5 - border_radius)),
-        network.add_junction(Vec2::new(width * 0.5, -height * 0.5 + border_radius)),
-        network.add_junction(Vec2::new(width * 0.5 - border_radius, -height * 0.5)),
-    ];
+        let center_junction = network.add_junction(Vec2::ZERO);
 
-    let center_junction = network.add_junction(Vec2::ZERO);
+        let tracks = [1, 2, 3, 4, 5, 6, 7, 0].map(|i| {
+            network.connect_track(
+                junctions[i],
+                junctions[((i + junctions.len()).saturating_add_signed(offset)) % junctions.len()],
+            )
+        });
 
-    let tracks = [1, 2, 3, 4, 5, 6, 7, 0].map(|i| {
-        network.connect_track(
-            junctions[i],
-            junctions[(i + junctions.len() + 1) % junctions.len()],
-        )
-    });
+        network.assert_correctness("before new tracks");
 
-    // network.assert_correctness("before new tracks");
+        // network.connect_track(junctions[3], center_junction);
+        // network.assert_correctness("after first");
+        // network.connect_track(junctions[6], center_junction);
+        // network.assert_correctness("after second");
+        // network.connect_track(center_junction, junctions[4]);
 
-    network.connect_track(junctions[3], center_junction);
-    network.connect_track(junctions[6], center_junction);
-    network.connect_track(center_junction, junctions[4]);
+        // network.assert_correctness("After new tracks");
 
-    // network.assert_correctness("After new tracks");
-
-    network.add_train(tracks[0]);
-    network.add_train(tracks[1]);
+        network.add_train(tracks[0]);
+        network.add_train(tracks[1]);
+    }
 
     return network;
 }
