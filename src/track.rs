@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     f32::consts::{FRAC_PI_2, PI, TAU},
+    os::unix::net,
 };
 
 use glam::Vec2;
@@ -270,11 +271,14 @@ impl Network {
             let destination_id = if seg == number_of_segments - 1 {
                 destination_id
             } else {
-                self.add_junction(
-                    shape
-                        .get_transform_at_distance((seg as f32 + 1.0) * segment_length)
-                        .0,
-                )
+                let (position, rotation) =
+                    shape.get_transform_at_distance((seg as f32 + 1.0) * segment_length);
+
+                let junction = self.add_junction(position);
+
+                self.junctions[junction.0].direction = Some(Vec2::from_angle(rotation));
+
+                junction
             };
 
             let segment = self.add_track_segment(
@@ -381,8 +385,8 @@ pub fn generate_network() -> Network {
         stations: vec![],
     };
 
-    let width = 64.0;
-    let height = 40.0;
+    let width = 84.0;
+    let height = 56.0;
     let border_radius = 12.0;
     for (scale, offset) in [(1.0, 1), (0.8, -1)] {
         let junctions = [
@@ -390,23 +394,29 @@ pub fn generate_network() -> Network {
             network.add_junction(Vec2::new(-width * 0.5, -height * 0.5 + border_radius) * scale),
             network.add_junction(Vec2::new(-width * 0.5, height * 0.5 - border_radius) * scale),
             network.add_junction(Vec2::new(-width * 0.5 + border_radius, height * 0.5) * scale),
+            network.add_junction(Vec2::new(0.0, height * 0.5) * scale),
             network.add_junction(Vec2::new(width * 0.5 - border_radius, height * 0.5) * scale),
             network.add_junction(Vec2::new(width * 0.5, height * 0.5 - border_radius) * scale),
             network.add_junction(Vec2::new(width * 0.5, -height * 0.5 + border_radius) * scale),
             network.add_junction(Vec2::new(width * 0.5 - border_radius, -height * 0.5) * scale),
+            network.add_junction(Vec2::new(0.0, -height * 0.5) * scale),
         ];
 
-        let center_junction = network.add_junction(Vec2::ZERO);
-
-        let tracks = [1, 2, 3, 4, 5, 6, 7, 0].map(|i| {
-            network.connect_track(
-                junctions[i],
-                junctions[((i + junctions.len()).saturating_add_signed(offset)) % junctions.len()],
-            )
+        let tracks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map(|i| {
+            if offset > 0 {
+                network.connect_track(
+                    junctions[i],
+                    junctions[(i + junctions.len() + 1) % junctions.len()],
+                )
+            } else {
+                network.connect_track(
+                    junctions[(i + junctions.len() + 1) % junctions.len()],
+                    junctions[i],
+                )
+            }
         });
 
         network.assert_correctness("before new tracks");
-
         // network.connect_track(junctions[3], center_junction);
         // network.assert_correctness("after first");
         // network.connect_track(junctions[6], center_junction);
@@ -418,6 +428,10 @@ pub fn generate_network() -> Network {
         network.add_train(tracks[0]);
         network.add_train(tracks[1]);
     }
+
+    let length = network.junctions.len();
+    network.connect_track(JunctionId(1), JunctionId(length - 16));
+    network.connect_track(JunctionId(length - 24), JunctionId(9));
 
     return network;
 }
